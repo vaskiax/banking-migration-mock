@@ -25,14 +25,40 @@ class SecurityManager:
     def __init__(self, key: Optional[bytes] = None):
         """
         Initializes the security manager with a Fernet key.
-        If no key is provided, it attempts to load from environment or generates a new one (for demo).
+        Checks for secrets.env, otherwise falls back to environment or new generation.
         """
         env_key_name = settings.security.encryption_key_env
-        self.key = key or os.environ.get(env_key_name, Fernet.generate_key())
-        self.cipher_suite = Fernet(self.key)
+        raw_key = os.environ.get(env_key_name)
         
-        if not os.environ.get(env_key_name):
-            logger.warning(f"No encryption key found in environment variable {env_key_name}. Using a temporary key.")
+        # Try to load from secrets.env if it exists (for local robustness)
+        secrets_path = os.path.join(os.getcwd(), 'secrets.env')
+        if not raw_key and os.path.exists(secrets_path):
+            try:
+                with open(secrets_path, 'r') as f:
+                    for line in f:
+                        if line.startswith(f"{env_key_name}="):
+                            raw_key = line.split('=')[1].strip()
+                            logger.info(f"Loaded key from secrets.env")
+                            break
+            except Exception as e:
+                logger.warning(f"Error reading secrets.env: {e}")
+
+        if key:
+            self.key = key
+        elif raw_key:
+            # Strip potential whitespace/newlines from env/file (Instruction 1)
+            self.key = raw_key.strip().encode()
+        else:
+            self.key = Fernet.generate_key()
+            logger.warning(f"No encryption key found in environment or secrets.env. Using a temporary key.")
+            
+        print(f"DEBUG_SEC: Key length={len(self.key)}, Type={type(self.key)}")
+        try:
+            self.cipher_suite = Fernet(self.key)
+            print("DEBUG_SEC: Cipher initialized successfully.")
+        except Exception as e:
+            print(f"DEBUG_SEC: Cipher initialization FAILED: {e}")
+            raise
 
     def hash_email(self, email: str) -> str:
         """

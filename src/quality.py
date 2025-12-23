@@ -1,5 +1,7 @@
 import os
 import logging
+from src.patches import apply_spark_patches
+apply_spark_patches()
 import pandas as pd
 import great_expectations as gx
 from typing import Dict, Any, List, Tuple

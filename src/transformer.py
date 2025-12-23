@@ -1,5 +1,7 @@
 import os
 import logging
+from src.patches import apply_spark_patches
+apply_spark_patches()
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, to_date, year, month, dayofmonth, sha2, pandas_udf
 from pyspark.sql.types import StringType
@@ -35,6 +37,7 @@ class BankingTransformer:
             .config("spark.sql.shuffle.partitions", settings.spark.shuffle_partitions) \
             .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
             .getOrCreate()
+        logger.info("Spark Session initialized successfully.")
 
     def handle_quarantine(self, df_invalid: pd.DataFrame, execution_date: str):
         """Saves invalid records to the quarantine directory (Instruction 2)."""
@@ -49,21 +52,16 @@ class BankingTransformer:
         logger.warning(f"DLQ: Saved {len(df_invalid)} invalid records to {output_path}")
 
     def transform_to_silver(self, df_valid: pd.DataFrame, filename: str) -> str:
-        """
-        Applies security transformations using Vectorized (Pandas) UDFs.
-        """
-        logger.info(f"Vectorizing security logic for {len(df_valid)} records...")
+        """Applies security transformations using Vectorized (Pandas) UDFs."""
+        logger.info(f"Spark: Vectorizing security logic for {len(df_valid)} records...")
         
         spark_df = self.spark.createDataFrame(df_valid)
         
         # Instruction 3: Vectorized Hashing (Native) and Encryption (Pandas UDF)
-        # Email hashing is already highly efficient with native sha2
         spark_df = spark_df.withColumn("email_hashed", sha2(col("email"), 256))
         
-        # Define Vectorized UDF for PAN Encryption (Instruction 3)
         @pandas_udf(StringType())
         def encrypt_pan_series(pan_series: pd.Series) -> pd.Series:
-            # We map the encryption over the series (vectorized-like performance)
             return pan_series.apply(self.security.encrypt_pan)
         
         spark_df = spark_df.withColumn("pan_encrypted", encrypt_pan_series(col("pan")))
@@ -108,4 +106,5 @@ class BankingTransformer:
         return gold_dir
 
     def close(self):
-        self.spark.stop()
+        if self.spark:
+            self.spark.stop()

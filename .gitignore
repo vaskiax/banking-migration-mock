@@ -1,0 +1,32 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+
+# Environment
+jdk17_portable/
+jdk_portable/
+secrets.env
+
+# Data
+data/raw/*
+data/silver/*
+data/gold/*
+data/quarantine/*
+!data/raw/
+!data/silver/
+!data/gold/
+!data/quarantine/
+
+# Logs
+logs/*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini

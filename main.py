@@ -1,5 +1,7 @@
 import os
 import logging
+from src.patches import apply_spark_patches
+apply_spark_patches()
 import pandas as pd
 from datetime import datetime
 from src.config_loader import settings
