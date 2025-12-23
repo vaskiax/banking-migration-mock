@@ -25,37 +25,46 @@ class BankingTransformer:
     
     def __init__(self):
         self.security = SecurityManager()
+        # Instruction 3: Spark Tuning - Explicit Memory and Core allocation
         self.spark = SparkSession.builder \
             .appName("BankingGoldPipeline") \
+            .config("spark.driver.memory", "2g") \
+            .config("spark.executor.memory", "4g") \
+            .config("spark.executor.cores", "2") \
+            .config("spark.sql.shuffle.partitions", "10") \
             .getOrCreate()
 
     def bronze_to_silver(self, input_path: str, output_dir: str):
         """
-        Step 1: In-memory fast pre-processing with Polars.
-        Applies Hashing and Encryption (GDPR compliance).
+        Step 1: Efficient processing.
+        Move security logic to Spark to leverage distributed UDFs and native functions.
         """
-        logger.info(f"Polars: Reading raw data from {input_path}")
+        logger.info(f"Spark: Reading raw data from {input_path}")
         
-        # Using Polars for fast scan and map
-        df = pl.read_csv(input_path)
+        # We read with Spark directly to leverage native functions easily
+        spark_df = self.spark.read.csv(input_path, header=True, inferSchema=True)
         
-        # Apply security transformations
-        # Polars map_elements for custom Python functions (security logic)
-        df = df.with_columns([
-            pl.col("email").map_elements(self.security.hash_email, return_dtype=pl.String).alias("email_hashed"),
-            pl.col("pan").map_elements(self.security.encrypt_pan, return_dtype=pl.String).alias("pan_encrypted")
-        ])
+        from pyspark.sql.functions import sha2, udf
+        from pyspark.sql.types import StringType
         
-        # Remove original PII columns
-        df_silver = df.drop(["email", "pan"])
+        # 1. Native SHA256 for email (Highly Efficient)
+        spark_df = spark_df.withColumn("email_hashed", sha2(col("email"), 256))
+        
+        # 2. Vectorized-like UDF for Encryption (Fernet)
+        encrypt_udf = udf(self.security.encrypt_pan, StringType())
+        spark_df = spark_df.withColumn("pan_encrypted", encrypt_udf(col("pan")))
+        
+        # Remove original PII columns (GDPR Minimization)
+        df_silver = spark_df.drop("email", "pan")
         
         # Ensure output directory exists
         os.makedirs(output_dir, exist_ok=True)
         silver_file = os.path.basename(input_path).replace(".csv", "_silver.parquet")
         silver_path = os.path.join(output_dir, silver_file)
         
-        df_silver.write_parquet(silver_path)
-        logger.info(f"Silver data saved locally: {silver_path}")
+        # Write silver layer
+        df_silver.write.mode("overwrite").parquet(silver_path)
+        logger.info(f"Silver data saved: {silver_path}")
         return silver_path
 
     def silver_to_gold(self, silver_path: str, gold_dir: str):
