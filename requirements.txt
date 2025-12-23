@@ -8,3 +8,6 @@ pytest
 apache-airflow
 openlineage-airflow
 openlineage-python
+pydantic
+pyyaml
+pyarrow

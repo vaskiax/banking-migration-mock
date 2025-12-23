@@ -1,0 +1,29 @@
+paths:
+  raw: "data/raw"
+  bronze: "data/bronze"
+  silver: "data/silver"
+  gold: "data/gold"
+  quarantine: "data/quarantine"
+  logs: "logs"
+
+spark:
+  app_name: "BankingEnterprisePipeline"
+  driver_memory: "2g"
+  executor_memory: "4g"
+  executor_cores: 2
+  shuffle_partitions: 10
+
+security:
+  encryption_key_env: "BANKING_ENCRYPTION_KEY"
+
+quality:
+  expected_columns:
+    - "transaction_id"
+    - "customer_id"
+    - "email"
+    - "pan"
+    - "amount"
+    - "currency"
+    - "timestamp"
+  min_amount: 0.0
+  currency_len: 3

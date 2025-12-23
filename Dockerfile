@@ -1,28 +1,29 @@
-# Dockerfile for Banking Data Pipeline (Spark/Python 3.9)
-FROM python:3.9-slim-buster
+# Enterprise Dockerfile for Banking Data Pipeline (Bitnami Spark)
+FROM bitnami/spark:3.5.0
 
-# Install OpenJDK-11 (Required for Spark)
-RUN apt-get update && \
-    apt-get install -y openjdk-11-jre-headless procps && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Set user to root to install dependencies
+USER root
 
-# Set JAVA_HOME
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+# Install Python dependencies and Arrow support
+RUN apt-get update && apt-get install -y python3-pip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy requirements and install
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY . .
 
-# Environment variables for Spark
-ENV SPARK_HOME=/usr/local/lib/python3.9/site-packages/pyspark
+# Environment setup
 ENV PYTHONPATH=$PYTHONPATH:/app/src
+ENV BANKING_ENCRYPTION_KEY="ENTERPRISE_DEMO_KEY_DO_NOT_USE_IN_PROD"
 
-# Default command
-CMD ["python", "main.py"]
+# Create necessary directories
+RUN mkdir -p data/raw data/bronze data/silver data/gold data/quarantine logs
+
+# Run the pipeline by default
+ENTRYPOINT ["python3", "main.py"]

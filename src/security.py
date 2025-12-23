@@ -4,8 +4,10 @@ import hashlib
 from cryptography.fernet import Fernet
 from typing import Optional
 
+from src.config_loader import settings
+
 # Configure logging
-LOG_DIR = "logs"
+LOG_DIR = settings.paths.logs
 os.makedirs(LOG_DIR, exist_ok=True)
 logger = logging.getLogger("SecurityModule")
 if not logger.handlers:
@@ -25,11 +27,12 @@ class SecurityManager:
         Initializes the security manager with a Fernet key.
         If no key is provided, it attempts to load from environment or generates a new one (for demo).
         """
-        self.key = key or os.environ.get("BANKING_ENCRYPTION_KEY", Fernet.generate_key())
+        env_key_name = settings.security.encryption_key_env
+        self.key = key or os.environ.get(env_key_name, Fernet.generate_key())
         self.cipher_suite = Fernet(self.key)
         
-        if not os.environ.get("BANKING_ENCRYPTION_KEY"):
-            logger.warning("No encryption key found in environment. Using a temporary key.")
+        if not os.environ.get(env_key_name):
+            logger.warning(f"No encryption key found in environment variable {env_key_name}. Using a temporary key.")
 
     def hash_email(self, email: str) -> str:
         """

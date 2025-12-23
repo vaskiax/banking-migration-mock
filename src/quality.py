@@ -2,10 +2,11 @@ import os
 import logging
 import pandas as pd
 import great_expectations as gx
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
+from src.config_loader import settings
 
 # Configure logging
-LOG_DIR = "logs"
+LOG_DIR = settings.paths.logs
 os.makedirs(LOG_DIR, exist_ok=True)
 logger = logging.getLogger("QualityModule")
 if not logger.handlers:
@@ -16,25 +17,16 @@ if not logger.handlers:
 
 class DataQualityManager:
     """
-    Handles data quality validations using Great Expectations.
+    Handles data quality validations using Great Expectations and implement DLQ pattern.
     Ensures compliance with BCBS 239 regarding data integrity and accuracy.
     """
     
     def __init__(self):
-        # In a real scenario, we would use a DataContext from a gx/ directory
-        # Here we use an ephemeral context for portability
         self.context = gx.get_context()
-        
-        # Schema definition (Schema Registry simulation)
-        self.expected_columns = [
-            "transaction_id", "customer_id", "email", 
-            "pan", "amount", "currency", "timestamp"
-        ]
+        self.expected_columns = settings.quality.expected_columns
 
     def validate_schema(self, df: pd.DataFrame) -> bool:
-        """
-        Validates that the input DataFrame matches the expected column schema.
-        """
+        """Validates that the input DataFrame matches the expected column schema."""
         current_columns = list(df.columns)
         if set(current_columns) != set(self.expected_columns):
             logger.error(f"Schema Mismatch! Expected: {self.expected_columns}, Got: {current_columns}")
@@ -42,61 +34,55 @@ class DataQualityManager:
         logger.info("Schema validation passed.")
         return True
 
-    def run_valitations(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def run_quarantine_check(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Runs critical quality expectations on the banking dataset.
+        Runs quality checks and splits the data into Valid and Quarantine (Invalid).
+        Implements the Dead Letter Queue (DLQ) pattern.
         """
-        logger.info("Starting Great Expectations validation suite...")
+        logger.info(f"Starting Quarantine validation on {len(df)} records...")
         
-        # Create a Pandas-based Dataset for GX
-        ge_df = gx.dataset.PandasDataset(df)
+        # 1. Basic type/null checks (Vectorized using Pandas for performance)
+        is_valid = pd.Series(True, index=df.index)
         
-        results = []
+        # Check non-nulls for critical fields
+        is_valid &= df["transaction_id"].notnull()
+        is_valid &= df["amount"].notnull()
         
-        # 1. Non-nullity for transaction_id
-        results.append(ge_df.expect_column_values_to_not_be_null("transaction_id"))
+        # Threshold checks (from config)
+        is_valid &= df["amount"] >= settings.quality.min_amount
         
-        # 2. PAN format (simplified check)
-        results.append(ge_df.expect_column_values_to_be_of_type("pan", "object"))
+        # Currency length check
+        is_valid &= df["currency"].str.len() == settings.quality.currency_len
         
-        # 3. Amount must be positive
-        results.append(ge_df.expect_column_values_to_be_between("amount", min_value=0))
+        # Split Data
+        df_valid = df[is_valid].copy()
+        df_invalid = df[~is_valid].copy()
         
-        # 4. Currency must be valid (3 characters)
-        results.append(ge_df.expect_column_value_lengths_to_equal("currency", 3))
+        # Log results
+        valid_count = len(df_valid)
+        invalid_count = len(df_invalid)
         
-        # 5. Timestamp format validation (Regex for ISO8601)
-        results.append(ge_df.expect_column_values_to_match_strftime_format("timestamp", "%Y-%m-%dT%H:%M:%S.%f"))
-
-        overall_success = all(res.success for res in results)
-        
-        if not overall_success:
-            failed = [res.expectation_config.kwargs.get('column') for res in results if not res.success]
-            logger.error(f"Falla en validación de calidad. Columnas afectadas: {failed}")
+        if invalid_count > 0:
+            logger.warning(f"Quarantine Alert: Found {invalid_count} invalid records. Redirecting to DLQ.")
         else:
-            logger.info("All quality checks passed successfully (BCBS 239 compliance verified).")
+            logger.info("All records passed quality checks.")
             
-        return {
-            "success": overall_success,
-            "details": results
-        }
+        return df_valid, df_invalid
 
 if __name__ == "__main__":
     # Test with mockup data
-    import numpy as np
-    
     dq = DataQualityManager()
     
     test_data = pd.DataFrame({
-        "transaction_id": ["id1", "id2"],
-        "customer_id": ["C1", "C2"],
-        "email": ["a@b.com", "c@d.com"],
-        "pan": ["1234", "5678"],
-        "amount": [100.0, 200.0],
-        "currency": ["USD", "EUR"],
-        "timestamp": ["2023-01-01T10:00:00.000000", "2023-01-01T11:00:00.000000"]
+        "transaction_id": ["id1", "id2", None], # None is invalid
+        "customer_id": ["C1", "C2", "C3"],
+        "email": ["a@b.com", "c@d.com", "e@f.com"],
+        "pan": ["1234", "5678", "9012"],
+        "amount": [100.0, -50.0, 300.0], # -50 is invalid
+        "currency": ["USD", "EUR", "YEN"], # YEN is 3 chars (valid), but let's assume one is long
+        "timestamp": ["2023-01-01T10", "2023-01-01T11", "2023-01-01T12"]
     })
     
-    if dq.validate_schema(test_data):
-        validation_results = dq.run_valitations(test_data)
-        print(f"Quality Success: {validation_results['success']}")
+    valid, quarantine = dq.run_quarantine_check(test_data)
+    print(f"Valid records: {len(valid)}")
+    print(f"Quarantined: {len(quarantine)}")

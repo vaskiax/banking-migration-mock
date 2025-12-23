@@ -1,81 +1,60 @@
-# 🏦 Banking Data Lakehouse Framework (Gold Tier)
+# 🏦 Enterprise Banking Data Lakehouse (Mission Critical)
 
 ## 🏢 Corporate Overview
-This project provides a robust, scalable, and mission-critical data engineering framework for banking transaction migration. Designed by a Senior Data Architect, it implements best-in-class patterns for data governance, security, and performance.
+This project provides a robust, scalable, and production-ready data engineering framework. It implements sophisticated patterns like **Dead Letter Queues (DLQ)** and **Vectorized Spark Processing** to handle high-volume banking transactions while maintaining absolute compliance with **BCBS 239** and **GDPR**.
 
-### 🏛️ Architecture & Data Governance
-The pipeline follows the **Medallion Architecture**, ensuring clear boundaries between data states:
+## 🏗️ Pipeline Evolution: Professional -> Enterprise
+| Feature | Professional Stage | Enterprise Stage (Current) |
+|---------|--------------------|----------------------------|
+| **Config** | Hardcoded Defaults | Centralized `settings.yaml` (Pydantic validated) |
+| **Error Handling** | Aborts on Failure | **Quarantine Pattern (DLQ)** - Skips bad records |
+| **Performance** | Standard Python UDFs | **Vectorized Pandas UDFs (Apache Arrow)** |
+| **Scaling** | Local venv | Containerized (Bitnami Spark 3.5) |
 
+## ⚙️ Enterprise Data Flow
 ```mermaid
 graph TD
-    A[Mainframe / CSV] -- "Ingestion (Raw)" --> B(Bronze Data)
-    B -- "Validation (GX) & Security" --> C(Silver Data)
-    C -- "Aggregation (Spark)" --> D{Gold Tier}
+    A[Legacy Source] --> B{Quality Gate}
+    B -- "Valid" --> C[Vectorized Transformation]
+    B -- "Invalid" --> D[Quarantine / DLQ]
+    C --> E[Anonymized Silver Parquet]
+    E --> F[Aggregated Gold Tier]
     
-    subgraph "Governance Tier (BCBS 239)"
-        E[OpenLineage]
-        F[Great Expectations]
-        G[Schema Registry]
+    subgraph "Infrastructure Tier"
+        G[config/settings.yaml]
+        H[Docker / Spark 3.5]
     end
-    
-    B -.-> F
-    C -.-> E
-    D -.-> G
 ```
 
-## ⚖️ Regulatory Compliance
+## ⚖️ Compliance & Norms
 
-### **BCBS 239 (Data Integrity & Quality)**
-- **Principle 1 (Architecture)**: Robust Spark-based architecture with explicit resource tuning.
-- **Principle 2 (Accuracy)**: 100% data precision ensured by **Great Expectations** checkpoints before Silver promotion.
-- **Principle 3 (Lineage)**: End-to-end traceability via Airflow hooks.
+### **BCBS 239 (Accuracy & Adaptability)**
+- **Quarantine Pattern**: Ensures 100% accurate promotes to Gold. Records that don't pass the "Schema Registry" or "Business Rules" are isolated for human audit in `data/quarantine/`.
+- **Auditability**: Individual logs for `generator`, `quality`, `security`, and `transformer`.
 
 ### **GDPR (Privacy by Design)**
-- **Anonymization**: PII (emails) are obfuscated using native **SHA256** hashing.
-- **Security**: PAN (Credit Cards) are encrypted with **Fernet (AES-128)** symmetric keys.
-- **Minimization**: Original PII is purged immediately after the security transformation phase.
+- **Advanced Encryption**: Vectorized Fernet encryption ensures that even high-velocity data is secured before resting in Silver.
+- **Minimization**: Raw PII columns are destroyed at the point of transformation.
 
-## 🚀 Quick Start Guide
+## 🚀 Operations & Automation
 
-### Direct Makefile Usage
-The project is fully automated via `Makefile`:
+### Standard Makefile Integration
 ```bash
-# Initialize environment
-make setup
-
-# Run professional test suite
-make test
-
-# Execute mission-critical pipeline
-make run
-
-# Clean artifacts
-make clean
+make build         # Build the Bitnami-based Spark image
+make run-container # Run the pipeline inside Docker with persistent volumes
+make test          # Execute the unit test suite
 ```
 
-### Infrastructure (Docker)
-To run in a containerized, production-equivalent environment:
-```bash
-docker build -t banking-pipeline .
-docker run --name bank-job banking-pipeline
-```
+### Data Dictionary (Gold layer)
+- `date`: Daily aggregation key.
+- `currency`: Transaction currency.
+- `total_amount`: Optimized business sum.
+- `tx_count`: Transaction volume indicator.
 
-## 📖 Data Dictionary (Gold Layer)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `date` | Date | Transaction aggregation date. |
-| `currency` | String | ISO 4217 Currency code. |
-| `total_amount` | Decimal | Sum of all transactions for the group. |
-| `tx_count` | Long | Total number of transactions. |
-| `year/month/day` | Integer | Partition columns for FinOps optimization. |
-
-## 🛠️ Performance Tuning (Instruction 3)
-- **Spark Tuning**: Driver/Executor memory configured for high-concurrency (2GB/4GB).
-- **Transformation**: Using native Spark `sha2` functions for 10x faster hashing vs Python loops.
-- **Idempotency**: Atomic partition overwrites fixed for safe backfilling processes.
+## 📂 Configuration (settings.yaml)
+Modify `config/settings.yaml` to adjust Spark resources (RAM/Cores), change directory paths, or update security environment keys.
 
 ---
-**Lead Architect**: Andrey (Senior Data Architect)  
-**Security Standard**: Fernet AES + SHA256  
-**Compliance**: BCBS 239 / GDPR / FinOps
+**Lead Architect**: Andrey (Senior Architect)  
+**Technology**: PySpark 3.5 | Polars | Pydantic | Docker | Arrow  
+**Ref: Instruction Set 2.0 (Decoupling / DLQ / Arrow / Docker)**

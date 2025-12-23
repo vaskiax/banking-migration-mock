@@ -1,13 +1,14 @@
 import os
 import logging
-import polars as pl
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_date, year, month, dayofmonth
-from src.security import SecurityManager
+from pyspark.sql.functions import col, to_date, year, month, dayofmonth, sha2, pandas_udf
+from pyspark.sql.types import StringType
 import pandas as pd
+from src.config_loader import settings
+from src.security import SecurityManager
 
 # Configure logging
-LOG_DIR = "logs"
+LOG_DIR = settings.paths.logs
 os.makedirs(LOG_DIR, exist_ok=True)
 logger = logging.getLogger("TransformerModule")
 if not logger.handlers:
@@ -18,77 +19,84 @@ if not logger.handlers:
 
 class BankingTransformer:
     """
-    Handles data transformations using Polars for fast local processing
-    and PySpark for heavy-lifting/aggregation.
-    Implements security (GDPR) and idempotency for backfilling.
+    Handles data transformations using Optimized PySpark.
+    Implements security (GDPR), Arrow-Vectorized UDFs, and Quarantine handling.
     """
     
     def __init__(self):
         self.security = SecurityManager()
-        # Instruction 3: Spark Tuning - Explicit Memory and Core allocation
+        
+        # Instruction 3: Spark Tuning from Config & Enable Arrow
         self.spark = SparkSession.builder \
-            .appName("BankingGoldPipeline") \
-            .config("spark.driver.memory", "2g") \
-            .config("spark.executor.memory", "4g") \
-            .config("spark.executor.cores", "2") \
-            .config("spark.sql.shuffle.partitions", "10") \
+            .appName(settings.spark.app_name) \
+            .config("spark.driver.memory", settings.spark.driver_memory) \
+            .config("spark.executor.memory", settings.spark.executor_memory) \
+            .config("spark.executor.cores", settings.spark.executor_cores) \
+            .config("spark.sql.shuffle.partitions", settings.spark.shuffle_partitions) \
+            .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
             .getOrCreate()
 
-    def bronze_to_silver(self, input_path: str, output_dir: str):
+    def handle_quarantine(self, df_invalid: pd.DataFrame, execution_date: str):
+        """Saves invalid records to the quarantine directory (Instruction 2)."""
+        if df_invalid.empty:
+            return
+            
+        quarantine_dir = os.path.join(settings.paths.quarantine, execution_date)
+        os.makedirs(quarantine_dir, exist_ok=True)
+        
+        output_path = os.path.join(quarantine_dir, "invalid_records.csv")
+        df_invalid.to_csv(output_path, index=False)
+        logger.warning(f"DLQ: Saved {len(df_invalid)} invalid records to {output_path}")
+
+    def transform_to_silver(self, df_valid: pd.DataFrame, filename: str) -> str:
         """
-        Step 1: Efficient processing.
-        Move security logic to Spark to leverage distributed UDFs and native functions.
+        Applies security transformations using Vectorized (Pandas) UDFs.
         """
-        logger.info(f"Spark: Reading raw data from {input_path}")
+        logger.info(f"Vectorizing security logic for {len(df_valid)} records...")
         
-        # We read with Spark directly to leverage native functions easily
-        spark_df = self.spark.read.csv(input_path, header=True, inferSchema=True)
+        spark_df = self.spark.createDataFrame(df_valid)
         
-        from pyspark.sql.functions import sha2, udf
-        from pyspark.sql.types import StringType
-        
-        # 1. Native SHA256 for email (Highly Efficient)
+        # Instruction 3: Vectorized Hashing (Native) and Encryption (Pandas UDF)
+        # Email hashing is already highly efficient with native sha2
         spark_df = spark_df.withColumn("email_hashed", sha2(col("email"), 256))
         
-        # 2. Vectorized-like UDF for Encryption (Fernet)
-        encrypt_udf = udf(self.security.encrypt_pan, StringType())
-        spark_df = spark_df.withColumn("pan_encrypted", encrypt_udf(col("pan")))
+        # Define Vectorized UDF for PAN Encryption (Instruction 3)
+        @pandas_udf(StringType())
+        def encrypt_pan_series(pan_series: pd.Series) -> pd.Series:
+            # We map the encryption over the series (vectorized-like performance)
+            return pan_series.apply(self.security.encrypt_pan)
         
-        # Remove original PII columns (GDPR Minimization)
+        spark_df = spark_df.withColumn("pan_encrypted", encrypt_pan_series(col("pan")))
+        
+        # GDPR Minimization: Drop raw PII
         df_silver = spark_df.drop("email", "pan")
         
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        silver_file = os.path.basename(input_path).replace(".csv", "_silver.parquet")
-        silver_path = os.path.join(output_dir, silver_file)
+        silver_dir = settings.paths.silver
+        os.makedirs(silver_dir, exist_ok=True)
+        silver_file = filename.replace(".csv", "_silver.parquet")
+        silver_path = os.path.join(silver_dir, silver_file)
         
-        # Write silver layer
         df_silver.write.mode("overwrite").parquet(silver_path)
-        logger.info(f"Silver data saved: {silver_path}")
+        logger.info(f"Silver layer published: {silver_path}")
         return silver_path
 
-    def silver_to_gold(self, silver_path: str, gold_dir: str):
-        """
-        Step 2: Distributed processing with PySpark for aggregations.
-        Implements Idempotent Upsert logic and Partitioning (FinOps).
-        """
-        logger.info("Spark: Initializing aggregation to Gold layer...")
+    def silver_to_gold(self, silver_path: str):
+        """Distributed aggregation to Gold layer."""
+        logger.info("Spark: Processing Gold Aggregations...")
         
         spark_df = self.spark.read.parquet(silver_path)
         
-        # Add date parts for partitioning
         spark_df = spark_df.withColumn("date", to_date(col("timestamp"))) \
                            .withColumn("year", year(col("timestamp"))) \
                            .withColumn("month", month(col("timestamp"))) \
                            .withColumn("day", dayofmonth(col("timestamp")))
         
-        # Example Aggregation: Total Amount by Currency and Date
         gold_df = spark_df.groupBy("date", "currency", "year", "month", "day") \
                           .agg({"amount": "sum", "transaction_id": "count"}) \
                           .withColumnRenamed("sum(amount)", "total_amount") \
                           .withColumnRenamed("count(transaction_id)", "tx_count")
         
-        # Idempotent Save: Overwrite partition to avoid duplicates during backfilling
+        gold_dir = settings.paths.gold
         os.makedirs(gold_dir, exist_ok=True)
         
         (gold_df.write
@@ -96,12 +104,8 @@ class BankingTransformer:
             .partitionBy("year", "month", "day")
             .parquet(gold_dir))
             
-        logger.info(f"Gold data (Nivel Oro) published at: {gold_dir}")
+        logger.info(f"Gold Tier updated at: {gold_dir}")
         return gold_dir
 
     def close(self):
         self.spark.stop()
-
-if __name__ == "__main__":
-    # This would be part of the DAG/Orchestrator
-    pass

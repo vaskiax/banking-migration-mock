@@ -6,8 +6,10 @@ from datetime import datetime, date
 from typing import List, Dict, Any
 from faker import Faker
 
+from src.config_loader import settings
+
 # Configure logging
-LOG_DIR = "logs"
+LOG_DIR = settings.paths.logs
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
@@ -86,7 +88,7 @@ if __name__ == "__main__":
     # Example usage for manual testing
     generator = BankingDataGenerator()
     today = datetime.now().date()
-    raw_data_path = os.path.join("data", "raw")
+    raw_data_path = settings.paths.raw
     
     # Generate 100k records as per requirement
     generator.generate_batch(100000, today, raw_data_path)
