@@ -1,0 +1,44 @@
+pipeline:
+  name: "Banking Mission Critical Gold Pipeline"
+  version: "1.0.0"
+  environment: "production"
+
+sla:
+  availability_target: 0.999
+  latency_threshold_minutes: 5
+  data_accuracy_percent: 100
+
+governance:
+  bcbs_239:
+    automated_validation: true
+    lineage_tracking: true
+  gdpr:
+    pii_fields: ["email", "pan"]
+    encryption_algorithm: "Fernet/AES-128"
+    hashing_algorithm: "SHA256"
+
+schema:
+  raw:
+    columns:
+      - name: "transaction_id"
+        type: "uuid"
+      - name: "customer_id"
+        type: "string"
+      - name: "email"
+        type: "string"
+      - name: "pan"
+        type: "string"
+      - name: "amount"
+        type: "double"
+      - name: "currency"
+        type: "string"
+      - name: "timestamp"
+        type: "iso8601"
+
+storage:
+  partition_by: ["year", "month", "day"]
+  format: "parquet"
+  medallion_layers:
+    bronze: "data/bronze"
+    silver: "data/silver"
+    gold: "data/gold"

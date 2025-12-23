@@ -1,0 +1,10 @@
+pyspark
+polars
+pandas
+great-expectations
+faker
+cryptography
+pytest
+apache-airflow
+openlineage-airflow
+openlineage-python
