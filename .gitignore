@@ -23,6 +23,14 @@ data/quarantine/*
 # Logs
 logs/*.log
 
+# Cloud & Terraform
+terraform_bin/
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/.terraform.lock.hcl
+config/settings_gcp.yaml
+pip_install.log
+
 # IDEs
 .vscode/
 .idea/

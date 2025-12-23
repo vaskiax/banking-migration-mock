@@ -4,6 +4,12 @@ import hashlib
 from cryptography.fernet import Fernet
 from typing import Optional
 
+try:
+    from google.cloud import secretmanager
+    GCP_SECRET_MANAGER_AVAILABLE = True
+except ImportError:
+    GCP_SECRET_MANAGER_AVAILABLE = False
+
 from src.config_loader import settings
 
 # Configure logging
@@ -24,13 +30,36 @@ class SecurityManager:
     
     def __init__(self, key: Optional[bytes] = None):
         """
-        Initializes the security manager with a Fernet key.
-        Checks for secrets.env, otherwise falls back to environment or new generation.
+        Initializes the security manager. Prioritizes:
+        1. Explicit key
+        2. GCP Secret Manager (if configured)
+        3. secrets.env file
+        4. Environment variable
+        5. New generation (fallback)
         """
         env_key_name = settings.security.encryption_key_env
         raw_key = os.environ.get(env_key_name)
         
-        # Try to load from secrets.env if it exists (for local robustness)
+        # 1. Explicit key
+        if key:
+            self.key = key
+            self.cipher_suite = Fernet(self.key)
+            return
+
+        # 2. Try GCP Secret Manager
+        gcp_secret_id = os.environ.get("GCP_SECRET_ID")
+        if gcp_secret_id and GCP_SECRET_MANAGER_AVAILABLE:
+            try:
+                gcp_key = self._fetch_from_gcp_secret_manager(gcp_secret_id)
+                if gcp_key:
+                    self.key = gcp_key.strip().encode()
+                    self.cipher_suite = Fernet(self.key)
+                    logger.info(f"Loaded key from GCP Secret Manager: {gcp_secret_id}")
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to fetch key from GCP Secret Manager: {e}")
+
+        # 3. Try to load from secrets.env if it exists
         secrets_path = os.path.join(os.getcwd(), 'secrets.env')
         if not raw_key and os.path.exists(secrets_path):
             try:
@@ -43,22 +72,26 @@ class SecurityManager:
             except Exception as e:
                 logger.warning(f"Error reading secrets.env: {e}")
 
-        if key:
-            self.key = key
-        elif raw_key:
-            # Strip potential whitespace/newlines from env/file (Instruction 1)
+        # 4 & 5. Env or Fallback
+        if raw_key:
             self.key = raw_key.strip().encode()
         else:
             self.key = Fernet.generate_key()
-            logger.warning(f"No encryption key found in environment or secrets.env. Using a temporary key.")
+            logger.warning(f"No encryption key found in any source. Using a temporary key.")
             
-        print(f"DEBUG_SEC: Key length={len(self.key)}, Type={type(self.key)}")
+        self.cipher_suite = Fernet(self.key)
+
+    def _fetch_from_gcp_secret_manager(self, secret_id: str) -> Optional[str]:
+        """Fetches the secret payload from GCP Secret Manager."""
+        if not GCP_SECRET_MANAGER_AVAILABLE:
+            return None
         try:
-            self.cipher_suite = Fernet(self.key)
-            print("DEBUG_SEC: Cipher initialized successfully.")
+            client = secretmanager.SecretManagerServiceClient()
+            response = client.access_secret_version(request={"name": secret_id})
+            return response.payload.data.decode("UTF-8")
         except Exception as e:
-            print(f"DEBUG_SEC: Cipher initialization FAILED: {e}")
-            raise
+            logger.error(f"Error accessing Secret Manager: {e}")
+            return None
 
     def hash_email(self, email: str) -> str:
         """

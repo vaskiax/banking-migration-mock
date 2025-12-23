@@ -11,3 +11,5 @@ openlineage-python
 pydantic
 pyyaml
 pyarrow
+google-cloud-storage
+google-cloud-secret-manager
