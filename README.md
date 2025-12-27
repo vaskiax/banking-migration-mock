@@ -1,98 +1,110 @@
-# 🏦 Enterprise Banking Data Pipeline
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![Spark 3.5](https://img.shields.io/badge/spark-3.5-orange.svg)](https://spark.apache.org/)
-[![GCP Certified](https://img.shields.io/badge/GCP-Cloud--Native-green.svg)](https://cloud.google.com/)
-[![Compliance](https://img.shields.io/badge/Compliance-GDPR%20|%20BCBS%20239-red.svg)](docs/COMPLIANCE_WHITE_PAPER.md)
-
-An end-to-end, production-grade data engineering platform designed for mission-critical banking operations. This system implements a robust **Medallion Architecture** (Bronze, Silver, Gold) with a heavy focus on **Data Quality, Security-first transformations, and Cloud-native scalability**.
+# Enterprise Banking Data Pipeline
+*A secondary-generation, production-grade data engineering platform for mission-critical banking operations.*
 
 ---
 
-## 🏗️ Pipeline Architecture
+## Executive Summary
+This project implements a robust, end-to-end data pipeline designed to handle the rigorous demands of the financial services industry. Built on the **Medallion Architecture** principle, the system ensures data reliability, security, and traceability from initial ingestion to final business reporting tiers. 
+
+Key objectives include automated schema enforcement, zero-plaintext security through vectorized cryptography, and seamless cloud-native scalability via Google Cloud Platform (GCP).
+
+## Architectural Pillars
+
+### 1. Medallion Data Management
+The pipeline follows a tiered data refinement strategy:
+*   **Bronze (Raw)**: Captures immutable raw data directly from external sources. No transformations are applied, ensuring a clear lineage to the source.
+*   **Silver (Validated & Secure)**: Enforces schema validation and applies enterprise-grade encryption. Data at this level is trustworthy, cleansed, and secured against unauthorized access.
+*   **Gold (Analytics Ready)**: Aggregates records into business-level entities (e.g., total volume, currency distribution). Optimized for high-fidelity analytics and regulatory reporting.
+
+### 2. Security-First Engineering
+In compliance with **PCI-DSS** and **GDPR**, the system prioritizes data protection:
+*   **Vectorized AES-256 Cryptography**: Utilizes Fernet (AES-256 in CBC mode) for high-performance encryption/decryption of PII.
+*   **GCP Secret Manager Integration**: Securely manages cryptographic keys and service credentials, eliminating hardcoded secrets.
+*   **Vectorized Hashing**: Securely masks sensitive identifiers while maintaining data joinability for analytics.
+
+### 3. Data Quality & Reliability
+*   **Great Expectations Integration**: Proactive data validation checks for schema drift and value anomalies.
+*   **Dead Letter Queue (DLQ) / Quarantine Pattern**: Invalid records are automatically diverted to a quarantine layer with detailed error metadata, preventing pipeline failures and ensuring 100% processing uptime.
+*   **Apache Arrow Optimizations**: Employs vectorized UDFs for processing speeds up to 10x faster than standard Python UDFs in Spark.
+
+---
+
+## Technical Architecture
 
 ```mermaid
 graph TD
-    subgraph "Ingestion (Bronze)"
-        A[External CSV Data] --> B[DataQualityManager]
+    subgraph "Ingestion Layer (Bronze)"
+        A[External CSV Feeds] --> B[DataQualityManager]
     end
     
-    subgraph "Transformation (Silver)"
-        B -- Valid --> C[BankingTransformer]
-        B -- Failed --> Q[Quarantine/DLQ Storage]
-        C --> D[SecurityManager: Encryption/Hashing]
+    subgraph "Transformation Layer (Silver)"
+        B -- "Valid Records" --> C[BankingTransformer]
+        B -- "Failed Records" --> Q[Quarantine/DLQ Storage]
+        C --> D[SecurityManager: AES-256 Encryption]
     end
     
-    subgraph "Reporting (Gold)"
+    subgraph "Analytics Layer (Gold)"
         D --> E[PySpark: Business Aggregations]
-        E --> F[Parquet: Analytics Output]
+        E --> F[Parquet: Optimized Analytics Output]
     end
 ```
 
-### 🌟 Enterprise Stage Features
-| Feature | Implementation | Business Value |
-|---------|----------------|----------------|
-| **Cryptography** | Vectorized Fernet (AES-256) | Zero-Plaintext Security (PCI-DSS) |
-| **Data Quality** | Great Expectations | Proactive Schema Enforcement |
-| **Performance** | Apache Arrow (Vectorized UDFs) | 10x Processing Speed vs Standard UDFs |
-| **Reliability** | **Quarantine Pattern (DLQ)** | 100% Pipeline Uptime during failures |
-| **Cloud-Native** | Terraform / GCP Secret Manager | Professional Infrastructure as Code |
+### Module Matrix
+
+| Directory / Script | Responsibility |
+|:---|:---|
+| `src/generator.py` | Synthetically generates production-like banking datasets for testing and simulation. |
+| `src/quality.py` | Orchestrates Great Expectations suites and handles schema registry enforcement. |
+| `src/transformer.py` | Core transformation logic implementing the Medallion transitions and encryption. |
+| `src/config_loader.py` | Dynamic configuration management via Pydantic and YAML. |
+| `scripts/` | Advanced automation for GCP provisioning, IAM management, and smoke testing. |
+| `terraform/` | Infrastructure-as-Code (IaC) for reproducible cloud environments. |
+| `docs/` | Comprehensive technical manifests, compliance white papers, and deployment guides. |
 
 ---
 
-## 🛠️ Module Deep Dive
+## Operations & Deployment
 
--   **[docs/TECHNICAL_ARCHITECTURE.md](docs/TECHNICAL_ARCHITECTURE.md)**: Detailed breakdown of the Medallion layers, Spark optimizations, and module logic.
--   **[docs/COMPLIANCE_WHITE_PAPER.md](docs/COMPLIANCE_WHITE_PAPER.md)**: technical manifest on meeting **GDPR**, **PCI-DSS**, and **BCBS 239** standards.
--   **[docs/GCP_DEPLOYMENT.md](docs/GCP_DEPLOYMENT.md)**: Comprehensive guide for cloud-native migration.
-
----
-
-## 🚀 Deployment & Operations
-
-### 1. Local Development (Windows Portable)
-The project is uniquely optimized for developer portability using local binaries.
+### Local Development
+The project is optimized for developer portability, featuring a standalone setup for Windows environments.
 ```powershell
-# Setup and run in one command
+# Execute the full pipeline locally
 python main.py
 ```
 
-### 2. Containerized Execution (Docker)
-Standardized environment for production consistency.
+### Containerized Execution
+Standardized Docker images ensure environmental parity across development and production.
 ```bash
 make build
 make run-container
 ```
 
-### 3. Google Cloud Transformation (GCP)
-Go from zero to cloud-ready in 3 commands.
-```powershell
-# 1. Create Project
-./scripts/create_gcp_project.ps1 -ProjectId "your-id"
-
-# 2. Provision with Terraform/gcloud
-./scripts/gcp_deploy.ps1 -ProjectId "your-id"
-
-# 3. Execute Cloud Job
-$env:BANKING_SETTINGS_FILE = 'config/settings_gcp.yaml'; python main.py
-```
-
----
-
-## 🧪 Testing & Validation
-
--   **Unit Tests**: `pytest` handles validation of the cryptographic core.
--   **GCP Smoke Tests**: `python ./scripts/gcp_smoke_test.py` validates cloud permissions.
--   **Data Lineage**: Integrated **OpenLineage** support for enterprise observability.
+### Cloud-Native Migration (GCP)
+A streamlined set of scripts automates the transition to Google Cloud Platform:
+1.  **Project Initialization**: 
+    `./scripts/create_gcp_project.ps1 -ProjectId "your-project-id"`
+2.  **API Orchestration**: 
+    `./scripts/enable_gcp_apis.ps1`
+3.  **Automated Provisioning**: 
+    `./scripts/gcp_deploy.ps1` - Provisions GCS Buckets, Artifact Registry, and Secret Manager.
+4.  **Cloud Execution**:
+    Set the environment variable to point to GCP settings and execute:
+    `$env:BANKING_SETTINGS_FILE = 'config/settings_gcp.yaml'; python main.py`
 
 ---
 
-## 📊 Data Governance (Gold Tier)
-The final Parquet output provides high-fidelity financial insights:
--   `total_amount`: Optimized business aggregation.
--   `transaction_count`: Volume metrics for risk assessment.
--   `currency_diversity`: Distribution analysis.
+## Compliance & Governance
+The system is built to meet international regulatory standards, detailed in our accompanying documentation:
+*   [COMPLIANCE_WHITE_PAPER.md](docs/COMPLIANCE_WHITE_PAPER.md) - Deep dive into **GDPR** and **BCBS 239**.
+*   [TECHNICAL_ARCHITECTURE.md](docs/TECHNICAL_ARCHITECTURE.md) - Technical implementation details of Spark optimizations and system logic.
+
+## Technical Stack
+*   **Processing**: PySpark 3.5, Polars, Apache Arrow
+*   **Security**: Fernet (AES-256), GCP Secret Manager
+*   **Quality**: Great Expectations, Pydantic
+*   **Infrastructure**: Docker, Terraform, Gcloud CLI
+*   **Platform**: Google Cloud Platform (GCS, BigQuery, Secret Manager)
 
 ---
-
-**Architect**: Andrey  
-**Tech Stack**: PySpark 3.5 | Polars | Pydantic | Docker | Terraform | Gcloud
+**Lead Architect**: Andrey  
+*Proprietary Banking Data Solutions*
